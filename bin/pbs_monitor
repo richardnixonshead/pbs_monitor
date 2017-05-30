@@ -21,7 +21,7 @@ node_name = ''
 total_np = 0
 
 try:
-   p = subprocess.Popen(["qstat","-xf"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+   p = subprocess.Popen(["qstat","-xft"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
    out,err = p.communicate()
    if out != "":
       fake_file = BytesIO(out)
@@ -66,6 +66,9 @@ try:
             if ':' in tempcores:
                tempcores_split = tempcores.split(':')
                nodes = tempcores_split[0]
+               # nodes can also be a name or a property
+               if not nodes.isdigit():
+                   nodes = 1
                for tempcores_element in tempcores_split:
                    matches = re.search("ppn=(\d)",tempcores_element)
                    if matches is not None:
@@ -110,3 +113,5 @@ subprocess.Popen(["gmetric","--group","Torque","--name","Idle_Jobs","--value","%
 subprocess.Popen(["gmetric","--group","Torque","--name","Idle_mcore","--value","%s" % str(idle_mcore),"--type","int16"])
 subprocess.Popen(["gmetric","--group","Torque","--name","Idle_single","--value","%s" % str(idle_single),"--type","int16"])
 subprocess.Popen(["gmetric","--group","Torque","--name","Free_cores","--value","%s" % str(free_cores),"--type","int16"])
+curl_string =  "curl -s --noproxy \* -d '{\"auth_token\":\"random_coepp_auth_token\",\"current\":\"%f\"}' http://www.rc.coepp.org.au:3030/widgets/t3queue" % round(float(100)*float(running_cores)/float(total_np),2)
+subprocess.Popen(curl_string,shell=True)
