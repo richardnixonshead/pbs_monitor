@@ -1,0 +1,112 @@
+#!/usr/bin/python
+
+from lxml import etree
+from io import BytesIO
+import subprocess
+import sys
+import re
+
+status = ''
+cores = 0
+running_cores = 0
+running_jobs = 0
+idle_jobs = 0
+running_single = 0
+idle_single = 0
+running_mcore = 0
+idle_mcore = 0
+node_status = ''
+node_np = 0
+node_name = ''
+total_np = 0
+
+try:
+   p = subprocess.Popen(["qstat","-xf"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+   out,err = p.communicate()
+   if out != "":
+      fake_file = BytesIO(out)
+      cores = ''
+      ppn = ''
+      nodes = ''
+
+      for event, element in etree.iterparse(fake_file):
+         if element.tag == "Job":
+            if status == "R":
+               running_cores = running_cores + cores
+               running_jobs = running_jobs + 1
+               if cores > 1:
+                  running_mcore = running_mcore + 1
+               if cores == 1:
+                  running_single = running_single + 1
+            if status == "Q":
+               idle_jobs = idle_jobs + 1
+               if cores > 1:
+                  idle_mcore = idle_mcore + 1
+               if cores == 1:
+                  idle_single = idle_single + 1
+            cores = ''
+            status = ''
+            ppn = ''
+            nodes = ''
+         if element.tag == "Resource_List":
+            if cores == '':
+               cores = 1
+            if ppn == '':
+               ppn = 1
+            if nodes == '':
+               nodes = 1
+         if element.tag == "neednodes":
+            if cores == '':
+               cores = 1
+            if ppn == '':
+               ppn = 1
+            if nodes == '':
+               nodes = 1
+            tempcores = element.text
+            if ':' in tempcores:
+               tempcores_split = tempcores.split(':')
+               nodes = tempcores_split[0]
+               for tempcores_element in tempcores_split:
+                   matches = re.search("ppn=(\d)",tempcores_element)
+                   if matches is not None:
+                      ppn = int(matches.group(1))
+               cores = (int(nodes)*int(ppn))
+            if tempcores == "1":
+               cores = 1
+         if element.tag == "job_state":
+            status = element.text
+
+   p2 = subprocess.Popen(["pbsnodes","-x"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+   outpbsnodes,errpbsnodes = p2.communicate()
+   if outpbsnodes != "":
+      fake_pbsnodes = BytesIO(outpbsnodes)
+
+      for event, element in etree.iterparse(fake_pbsnodes):
+         if element.tag == "Node":
+            # check the status. We don't want to include any nodes which are down or offline
+            if not ("down" in node_status or "offline" in node_status):
+               total_np = total_np + int(node_np)
+         if element.tag == "state":
+            node_status = element.text
+         if element.tag == "np":
+            node_np = element.text
+         if element.tag == "name":
+            node_name = element.text
+    
+except etree.XMLSyntaxError as detail:
+    print detail
+
+free_cores = total_np - running_cores
+if free_cores < 0:
+   free_cores = 0
+
+#print "Running_Cores: %s Running_Jobs: %s Running_mcore: %s Running_single: %s" % (running_cores,running_jobs,running_mcore,running_single)
+#print "Idle_Jobs: %s Idle_mcore: %s Idle_single: %s" % (idle_jobs,idle_mcore,idle_single)
+subprocess.Popen(["gmetric","--group","Torque","--name","Running_Cores","--value","%s" % str(running_cores),"--type","int16"])
+subprocess.Popen(["gmetric","--group","Torque","--name","Running_Jobs","--value","%s" % str(running_jobs),"--type","int16"])
+subprocess.Popen(["gmetric","--group","Torque","--name","Running_mcore","--value","%s" % str(running_mcore),"--type","int16"])
+subprocess.Popen(["gmetric","--group","Torque","--name","Running_single","--value","%s" % str(running_single),"--type","int16"])
+subprocess.Popen(["gmetric","--group","Torque","--name","Idle_Jobs","--value","%s" % str(idle_jobs),"--type","int16"])
+subprocess.Popen(["gmetric","--group","Torque","--name","Idle_mcore","--value","%s" % str(idle_mcore),"--type","int16"])
+subprocess.Popen(["gmetric","--group","Torque","--name","Idle_single","--value","%s" % str(idle_single),"--type","int16"])
+subprocess.Popen(["gmetric","--group","Torque","--name","Free_cores","--value","%s" % str(free_cores),"--type","int16"])
